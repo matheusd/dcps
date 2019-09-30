@@ -1,0 +1,579 @@
+<pre>
+DCP: 0005
+Title: Block Header Commitments
+Author: Dave Collins <davec@decred.org>
+Status: Defined
+Created: 2019-09-30
+License: CC0-1.0
+License-Code: ISC
+</pre>
+
+==Abstract==
+
+This specifies modifications to the Decred block header to provide an extensible
+framework, via future consensus-voted hard forks, for adding consensus-enforced
+commitments to the header without requiring any changes to its size or
+mining-related field offsets along with an initial commitment to an optimized
+version of GCS (Golomb-coded set) block filters.
+
+==Motivation==
+
+Currently, the only fully-supported trustless security model in Decred is the
+full-node model where every node and wallet is required to have access to the
+entire blockchain to verify that every block faithfully follows all of the
+consensus validation rules.
+
+While this model provides the highest security guarantees and is required by the
+consensus daemon to provide an ordered and timestamped public ledger that
+protects against double spends and modification of existing transactions, it is
+highly desirable to support other security models where applications can make
+varying levels of security trade offs according to their domain in exchange for
+no longer requiring access to whole blocks or the entire blockchain.
+
+===Simplified Payment Verification (SPV)===
+
+One well-known alternative security model is SPV.  This model supports verifying
+payments without requiring access to the entire blockchain in exchange for
+trusting proof-of-work and proof-of-stake miners to verify the history and a
+stronger non-partitioning assumption.  However, this means that if an attacker
+is able to overpower the network's proof-of-work hash power, it can trick SPV
+nodes into believing fabricated transactions are valid for as long as the
+attacker overpowers the network.
+
+In addition to all potential avenues for fraud typical to pure proof-of-work
+systems, Decred's hybrid proof-of-work and proof-of-stake model adds additional
+considerations such as consensus voting results, ticket selection semantics, and
+block invalidation.  Another complication with this model is that it relies on
+the ability to identify and retrieve relevant transactions which can be
+challenging to do without leaking information regarding coin ownership, which is
+not ideal from a privacy perspective.
+
+Nevertheless, it is possible to bring the SPV security level very close to that
+of full nodes through a combination of committed fraud proofs, inclusion proofs,
+and filters so long as there is at least one honest fully-validating node on the
+network to sound the alarm.  This is the case because once it is possible to
+generate a compact fraud proof which SPV nodes can verify quickly, they can
+securely reject the associated invalid block(s) accordingly.
+
+For most applications, an SPV model with increased security is preferable to the
+completely trust-based model many lightweight and mobile wallets use today where
+they communicate with a centralized server controlled by the wallet vendor and
+simply trust everything the service reports.
+
+===Alternative Security Models===
+
+There are also a variety of other security models with varying levels of
+trade offs that can be achieved by making commitments which allow compact proofs
+that can be verified quickly readily available.  A couple of examples are
+history pruning with full validation starting from the first non-pruned block,
+and selective proofing.
+
+With careful design, applications can make use of relevant committed proofs to
+offer strong cryptographic guarantees of certain aspects without needing to
+fully validate the entire chain themselves.  Such models are typically highly
+preferable to the fully trust-based models that most applications use at the
+current time.
+
+===Merkle Trees===
+
+Many applications, including the aforementioned SPV model, rely on the ability
+to quickly and efficiently prove whether a given item is a member of a set
+without having access to all elements in the set.  One of the most common data
+structures used for this purpose is a Merkle tree since it provides the ability
+to generate log-sized inclusion proofs of set membership.
+
+A Merkle tree, as defined in this proposal, is a hash-based data structure that
+forms a tree such that each leaf node is the hash of arbitrary data to commit to
+and all non-leaf nodes are the hash of the concatenation of their children.
+More formally, it is a directed acyclic graph.
+
+The final resulting hash at the top of the tree is called the Merkle root or
+root hash.
+
+While other more general forms of Merkle trees that work with unordered sets
+exist, this proposal refers to the unique Merkle tree construct originally
+invented by Satoshi, which relies on construction of the tree from an ordered
+list.
+
+The following diagram illustrates a balanced binary Merkle tree with 8 leaves:
+
+<img src="merkle_tree.svg" width="100%" height="560" />
+
+===Inclusion Proofs===
+
+An inclusion proof is a cryptographic method that provides the ability to prove
+an element is a member of a set without requiring access to all elements in the
+set.  For the purposes of this proposal, they more specifically refer to
+log-sized Merkle proofs for a single set element.
+
+In general, single-element Merkle proofs require the following details to prove
+set membership:
+
+* The Merkle root of the entire set
+* The hash of the item to prove
+* The position of the item within the initial ordered list that comprised the set
+* The intermediate sibling hashes along the path from the target leaf to prove through the root
+
+The last two items are typical bundled together according to some well-defined
+format and known as the inclusion proof.
+
+For example, consider the example Merkle tree in the previous section which
+consists of 8 items in the set.  The path of the item in the set represented by
+the leaf at index 2 (<code>L0:2</code> in the diagram) consists of the leaf itself,
+the node at level 1, index 1 (<code>L1:1</code>), the node at level 2, index 0
+(<code>L2:0</code>), and the Merkle root.
+
+Thus, the sibling hashes of the inclusion proof for the item would consist of
+the hash of its right sibling at level 0, index 3 (<code>L0:3</code>), the hash
+at level 1, index 0 (<code>L1:0</code>), and the hash at level 2, index 1
+(<code>L2:1</code>).
+
+<img src="merkle_tree_inclusion_proof.svg" width="100%" height="560" />
+
+This allows the prover to hash the original item and then calculate the expected
+Merkle root independently by recalculating the parent node at each level of the
+tree by concatenating its own calculated value along with the provided sibling
+hash from the proof at that level.  The item is a member of the set if the
+result matches the original Merkle root.
+
+===Fraud Proofs===
+
+A fraud proof is, in essence, a cryptographic method that provides the ability
+to prove data is invalid without requiring access to the entire state of a
+system.
+
+For example, a fraud proof might provide all the details needed for a
+lightweight client to efficiently prove that a transaction is invalid due to
+double spending despite the client not having access to all of the block data or
+the state of all unspent transactions.
+
+The addition of the proposed header commitments paves the way for committing to
+data necessary to generate such compact fraud proofs in the future.
+
+===Block Filters===
+
+In addition to generally proving an item is in a set, many applications also
+greatly benefit from the ability to quickly, efficiently, and securely determine
+if data they are interested is likely part of the contents of a block without
+having access to the entire block.  This allows them to avoid downloading and
+otherwise completely ignore blocks that do not apply to them.
+
+Making use of space-efficient probabilistic block filters populated with the
+contents of a block is an ideal way to provide this capability with a minimum of
+false positives.
+
+A probabilistic block filter will report with 100% accuracy when the block
+actually contains queried data, however, it might also report the block contains
+queried data when it actually doesn't with a certain false positive rate.
+
+In addition, in order to provide the greatest privacy and prevent servers from
+lying by omission, the block filters can be deterministically generated, stored,
+and served to lightweight clients.  The lightweight clients may then download
+the filters for each block, query them to determine if the block covered by the
+filter likely contains information relevant to them, and only download the full
+block in the case there is a match.
+
+<img src="block_filter_overview.svg" width="100%" height="415" />
+
+===Header Commitments===
+
+One of the issues for lightweight clients making use of the aforementioned data
+structures and proofs in a decentralized environment of untrusted sources is
+that a malicious actor can easily trick them unless there is also a way to prove
+that the provided information accurately represents the data in the block.
+
+In the case of the Merkle trees for the existing regular and stake transaction
+trees, this is accomplished by committing to their respective Merkle roots in
+the block header and having all fully-validating nodes independently calculate
+and verify they are valid as a part of the consensus rules.
+
+This process can be generalized by modifying the block header to commit to the
+root hash of a Merkle tree whose leaves are themselves a commitment to another
+data structure or proof, such as those previously described, and modifying all
+fully-validating nodes to enforce they are valid by independently calculating
+and verifying them as part of the consensus rules.
+
+This approach allows log-sized inclusion proofs to be generated for the
+committed data structures so that applications are able to efficiently, quickly,
+and securely prove a data structure accurately represents the data in the block.
+
+==Specification==
+
+===Hash Function===
+
+All hashing operations in this specification MUST be performed with the
+<code>BLAKE-256</code> hash function with 14 rounds.
+
+===Merkle Trees===
+
+All Merkle trees in this specification MUST be constructed according to the
+unique Merkle tree construct originally invented by Satoshi, which relies on
+construction of the tree from an ordered list as follows:
+
+* Accept a list of <code>BLAKE-256</code> hashes that commit to the original data
+** NOTE: This hash list is usually generated by replacing each item in the original list with its <code>BLAKE-256</code> hash
+* If the given list is empty, return a 32-byte root hash of all zeroes; otherwise
+* While the list contains two or more items:
+** If the number of items remaining in the list is odd, duplicate the final hash
+** Combine each pair of adjacent entries with the <code>BLAKE-256</code> hash of the two entries concatenated together
+*** NOTE: The list will have <code>ceil(N/2)</code> entries remaining after combining the adjacent entries
+* Return the final remaining item in the list as the Merkle root
+
+The following diagram illustrates these semantics:
+
+<img src="merkle_root_calc.svg" width="100%" height="650" />
+
+Take special note that the aforementioned algorithm will result in a couple of
+notable cases as follows:
+
+* Lists with no leaves MUST be assigned a 32-byte root hash of all zeroes
+* Lists with a single entry MUST be assigned a 32-byte root hash identical to the single leaf hash
+
+WARNING: The requirement for duplicating the final hash for internal tree levels
+that have an odd number of nodes must be carefully considered by applications
+making use of the resulting Merkle root because it means the final calculated
+Merkle root for a tree that internally duplicated a hash and one that actually
+included a duplicate hash at that position will be indistinguishable.
+
+===Combined Transaction Tree Merkle Root===
+
+The 32 bytes starting at zero-based byte offset 36 in the serialized block
+header, known as the <code>MerkleRoot</code> as of the time of this
+specification, MUST be set to the <code>BLAKE-256</code> hash of the
+concatenation of the individual Merkle roots calculated from the regular and
+stake transaction trees.
+
+In other words, it MUST be set to:
+
+<code>BLAKE-256(regular_tree_merkle_root || stake_tree_merkle_root)</code>
+
+Note that the calculated value is the Merkle root of a two-leaf Merkle tree
+whose leaves consist of the individual Merkle roots of the regular and stake
+transactions trees, respectively.
+
+<img src="combined_merkle_root.svg" width="100%" height="560" />
+
+===Golomb-Coded Sets===
+
+WIP
+
+====Golomb-Rice Coding====
+
+WIP
+
+====Set Construction====
+
+WIP
+
+====Set Querying====
+
+WIP
+
+===Version 2 Block Filters===
+
+WIP
+
+====Contents====
+
+WIP
+
+====Construction====
+
+WIP
+
+===Block Header Commitments===
+
+This specification introduces a new versioned block header commitment scheme
+which consists of generating a new per-block Merkle tree and repurposing the
+<code>StakeRoot</code> field of the block header to commit to its Merkle root.
+
+The new per-block Merkle tree is to be referred to as the commitment Merkle tree
+and its Merkle root is given the name commitment root.
+
+The leaves used to construct the commitment Merkle tree MUST depend on a
+specific header commitment version and every fully-validating node MUST
+independently calculate the commitment root and reject any blocks that commit to
+an invalid value.
+
+The following diagram illustrates the block header committing to the commitment
+root of a commitment Merkle tree with 4 commitments.
+
+<img src="block_header_commitments.svg" width="100%" height="450" />
+
+====Version 1 Block Header Commitment====
+
+The commitment Merkle tree for version 1 header commitments MUST consist of the
+following leaves:
+
+* The <code>BLAKE-256</code> hash of the serialized [[#version-2-block-filters|version 2 block filter]] for the block
+
+The 32 bytes starting at zero-based byte offset 68 in the serialized block
+header, known as the <code>StakeRoot</code> as of the time of this
+specification, MUST be set to the resulting version 1 commitment root.
+
+Since the version 1 header commitment only consists of a single item,
+implementations MAY wish to simplify their verification logic by taking
+advantage of the fact that a single leaf Merkle tree produces a Merkle root that
+is identical to the leaf.  That is to say the commitment root for version 1
+header commitments will be the hash of the only item being committed to, namely
+the version 2 block filter.
+
+However, implementations SHOULD implement code to verify the commitment root for
+an arbitrary number of commitments so they are ready for the addition of new
+commitments in the future.
+
+====Generating Commitment Root Inclusion Proofs====
+
+Inclusion proofs for block header commitments MUST consist of the following items:
+
+* The zero-based leaf index of the item to prove (also known as the proof index)
+* A list of sibling hashes in order in which they are encountered when calculating the commitment root (also known as proof hashes)
+
+The list of sibling hashes can be generated as follows:
+
+* Accept a list of <code>BLAKE-256</code> hashes that commit to the original data and the zero-based leaf index of the item to prove
+** NOTE: This hash list is usually generated by replacing each item in the original list with its <code>BLAKE-256</code> hash
+* If the input list is empty, return an empty sibling hash list
+* If the given leaf index to prove is greater than or equal to the number of items the input list contains, return an empty sibling hash list
+* While the input list contains two or more items:
+** If the number of items remaining in the input list is odd, duplicate the final hash
+** If the leaf index is odd, append the hash before the leaf index to the sibling hash list, otherwise append the hash after the leaf index to the sibling hash list
+** Combine each pair of adjacent entries with the <code>BLAKE-256</code> hash of the two entries concatenated together
+*** NOTE: The input list will have <code>ceil(N/2)</code> entries remaining after combining the adjacent entries
+** Shift the leaf index right by one bit
+
+WIP
+
+====Verifying Commitment Root Inclusion Proofs====
+
+* Accept the expected commitment root, the hash of the commitment to prove, and the inclusion proof (the zero-based proof index and the list of proof hashes)
+* Fail verification if the number of proof hashes is greater than 32
+* Fail verification if the proof index is greater than the max possible value it could be based on the number of provided proof hashes
+** The max possible proof index is calculated by shifting 1 left by the number of provided proof hashes and subtracting 1.
+* Set the calculated commitment root to the provided hash of the commitment to prove
+* Loop through each of the provided proof hashes:
+** If the proof index is odd, concatenate the calculated commitment root to the proof hash and update the calculated commitment root to the <code>BLAKE-256</code> hash of the concatenated value (e.g. <code>commitmentRoot = BLAKE-256(proofHash || commitmentRoot)</code>); otherwise
+** If the proof index is even, concatenate the proof hash to the calculated commitment root and update the calculated commitment root to the <code>BLAKE-256</code> hash of the concatenated value (e.g. <code>commitmentRoot = BLAKE-256(commitmentRoot || proofHash)</code>)
+** Shift the proof index right by one bit
+* Fail verification if the calculated commitment root does not match the expected commitment root
+
+WIP
+
+==Rationale==
+
+===Header Modifications===
+
+The most efficient and convenient location to store consensus-enforced
+commitments which allow compact proofs to be generated is the block header.
+Additionally, most software that works with the blockchain nearly always
+requires access to the block headers in order to follow the chain with the most
+proof-of-work and prove transactions are included in the associated block by
+making use of the committed Merkle root, so they will typically already have
+access to them.  Further, since headers are already an integral part of the
+system, there is already significant tooling for acquiring and working with
+them.
+
+The proposed changes are intentionally engineered to avoid changing the overall
+size of the header and field offsets of all mining-related fields to prevent
+breaking existing mining hardware and infrastructure that secures the network.
+
+The <code>StakeRoot</code> field was repurposed to house the new commitment
+scheme since it is already the correct size for a commitment Merkle root hash
+and the existing stake transaction tree Merkle root can be rolled into the
+existing MerkleRoot field elegantly without requiring significant modifications.
+
+Making use of a Merkle tree for calculating the commitment root allows efficient
+log-sized inclusion proofs of the commitments to be generated and requested from
+untrusted sources.  Further, each leaf is itself intended to be a commitment to
+some arbitrary data which will typically be some structure that employs
+techniques that also allow compact fraud and inclusion proofs to be constructed
+such as Fenwick trees, Golomb-Rice filters, and additional Merkle trees.
+
+This approach provides an extensible and efficient method of consensus-enforced
+proof chaining which allows the block header to commit to an arbitrary number of
+short proofs which lightweight clients can very quickly verify.
+
+An initial commitment to block filters necessary to securely support lightweight
+clients has been included as a part of this proposal to immediately make use of
+the new infrastructure without requiring a several month voting period first.
+
+Finally, once the block filters are committed to via the repurposed
+<code>StakeRoot</code> field, their specific implementation characteristics will
+necessarily become a part of the consensus rules.  Therefore, this proposal also
+includes several optimizations to the existing non-consensus-enforced filters in
+order to avoid the need for another future vote to incorporate them.
+
+===Golomb-Coded Sets===
+
+WIP
+
+* Discuss theoretical size implications
+
+<!--
+E(i=0,i=ceil(log2(N))) ceil(N/2^i)
+
+for N = 1024
+Merkle: 2047 * 32 = 65504 bytes
+
+
+The theoretical minimum for a similar probabilistic data structure would be N * log2(1/P), so a bloom filter is roughly using 44% more memory than theoretically necessary (log(e) = 1.44). GCS is a way to get closer to that minimum.
+N * log2(e) * log2(1/P)
+With P = 1/2^20
+
+
+N * log2(e) * log2(2^20)
+N * log2(e) * 20
+N * 1.44 * 20
+1024 * 1.44 * 20 ~= 29491 bytes
+
+GCS 1.001248, so .125%
+N * 1.001248 * log2(1/P)
+1024 * 1.001248 * 19 ~= 19480
+
+0.66054050388254043606524024278593
+0.65931161682921991510521558578847 ~= 66% percent of the size.  So ~34% smaller?
+-->
+
+<!--
+Up to block 382281
+total v1 filter bytes: 71066500 (67.8 MiB)
+total v2 filter bytes with OP_RETURNs: 55672237 (53.1 MiB)
+total chain bytes: 3586426455 (3.3 GiB)
+v1 filter/chain ratio: 0.019815 (1.982%)
+v2 filter/chain ratio: 0.015523 (1.552%)
+
+total v2 filter bytes without OP_RETURNs: 54640705 (52.1 MiB)
+total chain bytes: 3586426455 (3.3 GiB)
+filter/chain ratio: 0.015235 (1.524%)
+-->
+
+==Deployment==
+
+This agenda will be deployed to mainnet using the standard Decred on-chain
+voting infrastructure as follows:
+
+{|
+!Name!!Setting
+|-
+|Deployment Version||8
+|-
+|Agenda ID||headercommitments
+|-
+|Agenda Description||Enable header commitments as defined in DCP0005
+|-
+|Start Time||1567641600 (Sep 5th, 2019 00:00:00 +0000 UTC)
+|-
+|Expire Time||1599264000 (Jan 5th, 2020 00:00:00 +0000 UTC)
+|-
+|Mask||0x06 (Bits 1 and 2)
+|-
+|Choices||{|
+!Choice!!English Description!!Bits
+|-
+|abstain||abstain voting for change||0x00
+|-
+|no||keep the existing consensus rules||0x02 (Bit 1)
+|-
+|yes||change to the new consensus rules||0x04 (Bit 2)
+|}
+|}
+
+==Test Vectors==
+
+The following test vectors are provided in order to facilitate testing across
+implementations.
+
+===Combined Merkle Roots===
+
+WIP
+
+===Version 2 Block Filters===
+
+WIP
+
+===Version 1 Commitment Roots===
+
+WIP
+
+==Compatibility==
+
+This is a hard-forking change to the Decred consensus.  This means that once
+the agenda is voted in and becomes locked in, anybody running code that fully
+validates blocks must upgrade before the activation time or they will risk
+rejecting a chain containing a transaction that is invalid under the old rules.
+
+Other software that performs full validation will need to modify their consensus
+enforcement rules accordingly and any software that makes use of the current
+<code>MerkleRoot</code> or <code>StakeRoot</code> header fields will need to be
+updated to handle the changes specified herein.
+
+The existing uncommitted version 1 block filters will still be available for the
+time being to provide a smooth transition for existing software.  However,
+lightweight client SHOULD update to version 2 block filters as soon as possible
+since version 1 block filters are now deprecated.
+
+==Reference Implementation==
+
+<pre>
+WIP
+</pre>
+
+===Golomb-Coded Sets===
+
+A reference implementation of the Golomb-Coded sets:
+
+https://github.com/decred/dcrd/tree/2c3a4e3054dc6a82d6f6b0b84c6e4f9f842b3c8a/gcs
+https://github.com/decred/dcrd/tree/master/gcs
+
+https://github.com/decred/dcrd/pull/1856
+
+WIP
+
+===Pull Requests===
+
+====Consensus Enforcement====
+
+WIP
+
+A reference implementation of enforcing the new sequence lock view semantics in
+accordance with the results of the agenda vote is implemented by
+[[https://github.com/decred/dcrd/pull/1906|pull request #1906]].
+
+====Golomb-Coded Set Implementation====
+
+====Deployment====
+
+A reference implementation of the required agenda definition is implemented by
+[[https://github.com/decred/dcrd/pull/1904|pull request #1904]].
+
+==Acknowledgements==
+
+Thanks to Josh Rickmar ([[https://github.com/jrick|@jrick]]) and Matheus
+Degiovani ([[https://github.com/matheusd|@matheusd]]) for helpful
+discussions regarding many of the design details.
+
+TODO: BIP158 reference
+
+===Collaborators===
+
+Thanks to the following individuals who provided valuable feedback during the
+review process of this proposal (alphabetical order):
+
+* Donald Adu-Poku ([[https://github.com/dnldd|@dnldd]])
+* Jake Yocom-Piatt
+* Josh Rickmar ([[https://github.com/jrick|@jrick]])
+* TBD
+
+===Additional References===
+
+* [[https://giovanni.bajo.it/post/47119962313/golomb-coded-sets-smaller-than-bloom-filters|Golomb-coded sets: smaller than Bloom filters]]
+* [[https://en.wikipedia.org/wiki/Golomb_coding#Rice_coding|Rice Coding]]
+* TBD
+
+==Copyright==
+
+This document is licensed under the
+[https://creativecommons.org/publicdomain/zero/1.0 CC0-1.0: Creative Commons CC0 1.0 Universal]
+license.
+
+The code is licensed under the [https://opensource.org/licenses/ISC ISC License].
