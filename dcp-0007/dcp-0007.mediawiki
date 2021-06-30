@@ -2,7 +2,7 @@
 DCP: 0007
 Title: Revert Treasury Expenditure Policy
 Author: Matheus Degiovani <contact@matheusd.com>
-Status: Active
+Status: Defined
 Created: 2021-06-23
 License: CC0-1.0
 License-Code: ISC
@@ -47,9 +47,8 @@ For mainnet, the expenditure policy window has a size of 6912 blocks and 6
 preceding windows are checked, for a total of 41472 blocks. A bootstrap amount
 of 16K DCR is used.
 
-A deeper overview of the issue can be read on the 
-[[https://blog.decred.org/2021/06/25/Treasury-Expenditure-Policy-Bug/|Treasury Expenditure Policy Bug]]
-blog post.
+A deeper overview of the issue can be read on the Treasury Expenditure Policy Bug
+blog post<ref>[[https://blog.decred.org/2021/06/25/Treasury-Expenditure-Policy-Bug/|]]</ref>.
 
 ==Specification==
 
@@ -63,12 +62,14 @@ addition to a 50% increase.</blockquote>
 
 Changing the expenditure policy to the one originally specified and approved by
 stakeholders in Politeia should not be controversial from a community discussion
-standpoint and solves the immediate issues facing the blocking of the funds by
-the treasury.
+standpoint and solves the immediate issues facing the blocking of spending funds by
+the decentralized treasury.
 
-The two policies are largely compatible at this point time, given the current
-average expenditure amount being withdrawn from the treasury, as well as the
-currently mined test transaction in mainnet being acceptable by both policies.
+The two policies are largely compatible at this point in time since the following
+relevant factors are valid under both policies:
+
+* The current average expenditure amount being withdrawn from the treasury.
+* The existing <code>mainnet</code> test treasury spend transaction.
 
 Therefore, if no treasury spend transactions are mined such that they are
 incompatible to the new rule until the new rule is activated and sufficiently
@@ -88,7 +89,7 @@ voting infrastructure as follows:
 |Agenda ID||treasuryexppolicy
 |-
 |Agenda Description||Modify the treasury maximum expenditure policy as defined
-in DCP0006
+in DCP0007
 |-
 |Start Time||XXXXX
 |-
@@ -128,8 +129,8 @@ policyWindow := b.chainParams.TreasuryVoteInterval *
     b.chainParams.TreasuryVoteIntervalMultiplier *
     b.chainParams.TreasuryExpenditureWindow
 
-// First: sum up tspends, tadds and tbases inside the most recent
-// policyWindow.
+// First: sum up treasury spends, treasury adds and treasurybases inside the 
+// most recent policyWindow.
 spentRecent, addedRecent, _, err := b.sumPastTreasuryExpenditure(preTVINode, policyWindow)
 if err != nil {
     return 0, err
