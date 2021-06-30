@@ -54,9 +54,52 @@ blog post<ref>[[https://blog.decred.org/2021/06/25/Treasury-Expenditure-Policy-B
 
 Change the maximum expenditure policy to the following:
 
-<blockquote>The sum of treasury spend amounts inside the most recent expenditure window
-cannot exceed the total amount received by the treasury in the same window, in
-addition to a 50% increase.</blockquote>
+Given:
+
+* <img src="pw.svg"/> is the size of the policy window (number of blocks that are used to determine the maximum expenditure policy).
+<!-- $\mathcal{B}_i^{tx}$    $tx$     $\mathcal{B}_i$ -->
+* <img src="b_i_tx.svg"/> is the sum of the treasury transactions of type <img src="tx.svg"/> mined in block <img src="bi.svg"/>.
+<!--
+$
+ tx = \begin{cases}
+ ta &\text{treasury add transactions} \\
+ tb &\text{treasurybase transactions} \\
+ ts &\text{treasury spend transactions}
+ \end{cases}
+ $
+-->
+* <img src="tx_types.svg"/>
+
+The maximum expenditure policy M for a given block at height h is defined as:
+
+<!--
+S_{spent} = \displaystyle\sum_{i = max(h - pw, 0)}^{h - 1}{\mathcal{B}_i^{ts}}
+-->
+<img src="s_spent_eq.svg"/>
+
+<!--
+S_{added} = \displaystyle\sum_{i = max(h - pw, 0)}^{h - 1}{\mathcal{B}_i^{ta} + \mathcal{B}_i^{tb}}
+-->
+<img src="s_added_eq.svg"/>
+
+<!--
+A = S_{added} + ⌊S_{added} ÷ 2⌋
+-->
+<img src="a_eq.svg"/>
+
+<!--
+M_h = \begin{cases}
+    0 &\text{if}\enspace S_{spent} \ge A \\
+    A - S_{spent} &\text{otherwise}
+ \end{cases}
+-->
+<img src="mh_eq.svg"/>
+
+Informally:
+
+* <img src="s_spent.svg"/> is the sum of treasury spend transactions inside the most recent policy expenditure window.
+* <img src="s_added.svg"/> is the sum of treasury add and treasurybase transactions inside the same window.
+* <img src="a.svg"/> is the allowance for 150% of the treasury income for the window.
 
 ==Rationale==
 
