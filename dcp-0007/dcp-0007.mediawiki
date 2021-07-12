@@ -21,7 +21,7 @@ The current algorithm that calculates the maximum expenditure allowed by a set
 of treasury spend transactions within a given window of blocks takes into
 account the average spent in a preceding window.
 
-This is different then the policy that was originally proposed and approved by
+This is different than the policy that was originally proposed and approved by
 stakeholders in the original Politeia proposal for development of the
 decentralized treasury<ref>[[https://proposals-archive.decred.org/proposals/c96290a]]</ref>
 and has caused an issue that has prevented payments from the treasury account
